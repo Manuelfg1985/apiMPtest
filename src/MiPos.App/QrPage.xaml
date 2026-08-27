@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="MiPos.App.QrPage"
+             BackgroundColor="#FFFFFF"
+             Title="Escanear QR">
+
+    <VerticalStackLayout Padding="30" Spacing="20" HorizontalOptions="Center" VerticalOptions="Center">
+
+        <Label x:Name="LblMonto"
+               FontSize="28"
+               FontAttributes="Bold"
+               TextColor="#2E7D32"
+               HorizontalOptions="Center" />
+
+        <Label Text="Escanea con Mercado Pago para pagar"
+               FontSize="16"
+               TextColor="#666666"
+               HorizontalOptions="Center" />
+
+        <!-- Imagen que contendrá el QR generado -->
+        <Image x:Name="ImgQr"
+               WidthRequest="260"
+               HeightRequest="260"
+               HorizontalOptions="Center" />
+
+        <!-- Indicador de Espera / Status -->
+        <HorizontalStackLayout HorizontalOptions="Center" Spacing="10" Margin="0,10,0,0">
+            <ActivityIndicator IsRunning="True" Color="#009EE3" WidthRequest="25" HeightRequest="25"/>
+            <Label x:Name="LblEstado"
+                   Text="Esperando confirmación de pago..."
+                   FontSize="14"
+                   TextColor="#009EE3"
+                   VerticalOptions="Center" />
+        </HorizontalStackLayout>
+
+        <Button Text="VOLVER AL TECLADO"
+                BackgroundColor="#CCCCCC"
+                TextColor="#333333"
+                CornerRadius="8"
+                Margin="0,20,0,0"
+                Clicked="OnVolverClicked" />
+
+    </VerticalStackLayout>
+</ContentPage>

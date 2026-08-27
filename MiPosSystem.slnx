@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/MiPos.API/MiPos.API.csproj" />
+    <Project Path="src/MiPos.App/MiPos.App.csproj" />
+    <Project Path="src/MiPos.Shared/MiPos.Shared.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/MiPos.Tests/MiPos.Tests.csproj" />
+  </Folder>
+</Solution>
