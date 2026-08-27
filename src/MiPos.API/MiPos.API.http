@@ -1,6 +1,9 @@
 @MiPos.API_HostAddress = http://localhost:5015
+@Host_Render = https://mipos-api-kpai.onrender.com
 
-GET {{MiPos.API_HostAddress}}/weatherforecast/
+@MiPos.API_HostAddress = {{Host_Render}}
+
+GET {{Host_Render}}/weatherforecast/
 Accept: application/json
 
 ###
