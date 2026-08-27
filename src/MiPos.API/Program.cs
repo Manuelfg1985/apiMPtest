@@ -15,7 +15,13 @@ builder.Services.Configure<Microsoft.AspNetCore.HostFiltering.HostFilteringOptio
 
 // Configuración de MercadoPago
 string accessToken = builder.Configuration["MercadoPago:AccessToken"] 
-    ?? "TEST-TU-ACCESS-TOKEN-DE-PRUEBA";
+    ?? Environment.GetEnvironmentVariable("MercadoPago__AccessToken") 
+    ?? "";
+if (!string.IsNullOrEmpty(accessToken))
+{
+    MercadoPagoConfig.AccessToken = accessToken;
+}
+    
 
 MercadoPagoConfig.AccessToken = accessToken;
 
