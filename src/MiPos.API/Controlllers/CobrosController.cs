@@ -21,44 +21,48 @@ namespace MiPos.API.Controllers
         }
 
         [HttpPost("crear-qr")]
-        public async Task<IActionResult> CrearQr([FromBody] CrearQrDto dto)
+public async Task<IActionResult> CrearQr([FromBody] CrearQrDto dto)
+{
+    try
+    {
+        // Traza para verificar qué token está cargado en la SDK
+        var tokenCargado = MercadoPagoConfig.AccessToken;
+        var tokenInicio = string.IsNullOrEmpty(tokenCargado) ? "VACIO" : tokenCargado.Substring(0, Math.Min(10, tokenCargado.Length));
+        Console.WriteLine($"[DEBUG] Intentando crear QR con Token iniciado en: {tokenInicio}...");
+
+        var intentId = Guid.NewGuid().ToString();
+
+        var request = new PreferenceRequest
         {
-            try
+            Items = new List<PreferenceItemRequest>
             {
-                var intentId = Guid.NewGuid().ToString();
-
-                // Crear Preferencia en Mercado Pago
-                var request = new PreferenceRequest
+                new PreferenceItemRequest
                 {
-                    Items = new List<PreferenceItemRequest>
-                    {
-                        new PreferenceItemRequest
-                        {
-                            Title = "Cobro POS",
-                            Quantity = 1,
-                            CurrencyId = "ARS",
-                            UnitPrice = dto.Monto
-                        }
-                    },
-                    ExternalReference = intentId
-                };
+                    Title = "Cobro POS",
+                    Quantity = 1,
+                    CurrencyId = "ARS",
+                    UnitPrice = dto.Monto
+                }
+            },
+            ExternalReference = intentId
+        };
 
-                var client = new PreferenceClient();
-                Preference preference = await client.CreateAsync(request);
+        var client = new PreferenceClient();
+        Preference preference = await client.CreateAsync(request);
 
-                return Ok(new
-                {
-                    intentId = intentId,
-                    qrData = preference.InitPoint, // O SandboxInitPoint si estás en pruebas
-                    initPoint = preference.InitPoint
-                });
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error al generar QR en MercadoPago: {ex.Message}");
-                return StatusCode(500, new { error = "No se pudo generar el QR", detalle = ex.Message });
-            }
-        }
+        return Ok(new
+        {
+            intentId = intentId,
+            qrData = preference.InitPoint,
+            initPoint = preference.InitPoint
+        });
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Error al generar QR en MercadoPago: {ex.Message}");
+        return StatusCode(500, new { error = "No se pudo generar el QR", detalle = ex.Message });
+    }
+}
 
         [HttpPost("notificar-pago")]
         public async Task<IActionResult> NotificarPago([FromBody] NotificacionPagoDto dto)
