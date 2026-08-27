@@ -1,7 +1,7 @@
-using MercadoPago.Client.Payment;
+using MercadoPago.Client.Preference;
+using MercadoPago.Resource.Preference;
 using MiPos.API.Hubs;
 using MiPos.API.Services;
-using MiPos.Shared.DTOs;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 
@@ -21,38 +21,77 @@ namespace MiPos.API.Controllers
         }
 
         [HttpPost("crear-qr")]
-        public async Task<IActionResult> CrearOrdenQR([FromBody] CrearCobroRequestDto request)
+        public async Task<IActionResult> CrearQr([FromBody] CrearQrDto dto)
         {
-            if (request.Monto <= 0)
-                return BadRequest("El monto debe ser mayor a cero.");
-
-            string externalReference = Guid.NewGuid().ToString();
-
-            var response = new CrearCobroResponseDto
+            try
             {
-                IntentId = externalReference,
-                QrData = $"https://mpago.la/pos/{externalReference}",
-                Status = "pending"
-            };
+                var intentId = Guid.NewGuid().ToString();
 
-            return Ok(response);
+                // Crear Preferencia en Mercado Pago
+                var request = new PreferenceRequest
+                {
+                    Items = new List<PreferenceItemRequest>
+                    {
+                        new PreferenceItemRequest
+                        {
+                            Title = "Cobro POS",
+                            Quantity = 1,
+                            CurrencyId = "ARS",
+                            UnitPrice = dto.Monto
+                        }
+                    },
+                    ExternalReference = intentId
+                };
+
+                var client = new PreferenceClient();
+                Preference preference = await client.CreateAsync(request);
+
+                return Ok(new
+                {
+                    intentId = intentId,
+                    qrData = preference.InitPoint, // O SandboxInitPoint si estás en pruebas
+                    initPoint = preference.InitPoint
+                });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error al generar QR en MercadoPago: {ex.Message}");
+                return StatusCode(500, new { error = "No se pudo generar el QR", detalle = ex.Message });
+            }
         }
 
         [HttpPost("notificar-pago")]
         public async Task<IActionResult> NotificarPago([FromBody] NotificacionPagoDto dto)
         {
-            // 1. Notificar a la app móvil a través de SignalR
-            await _hubContext.Clients.All.SendAsync("PagoConfirmado", dto.IntentId, dto.Monto);
-
-            // 2. Si se proporcionó email, enviar comprobante
-            if (!string.IsNullOrEmpty(dto.EmailCliente))
+            try
             {
-                string fechaActual = DateTime.Now.ToString("dd/MM/yyyy HH:mm");
-                await _emailService.EnviarComprobanteAsync(dto.EmailCliente, dto.IntentId.Substring(0, 8), dto.Monto, fechaActual);
-            }
+                // 1. Notificar a la app móvil mediante WebSockets
+                await _hubContext.Clients.All.SendAsync("PagoConfirmado", dto.IntentId, dto.Monto);
 
-            return Ok(new { Mensaje = "Pago procesado y notificado con éxito." });
+                // 2. Si se ingresó email, enviar comprobante
+                if (!string.IsNullOrEmpty(dto.EmailCliente))
+                {
+                    string fechaActual = DateTime.Now.ToString("dd/MM/yyyy HH:mm");
+                    string comprobanteId = dto.IntentId.Length >= 8 ? dto.IntentId.Substring(0, 8) : dto.IntentId;
+
+                    await _emailService.EnviarComprobanteAsync(dto.EmailCliente, comprobanteId, dto.Monto, fechaActual);
+                }
+
+                return Ok(new { mensaje = "Pago procesado y notificado con éxito." });
+            }
+            catch (Exception ex)
+            {
+                // Muestra la excepción en las consolas/logs de Render si falla el SMTP
+                Console.WriteLine($"Error al procesar notificación/email: {ex.Message}");
+                return StatusCode(500, new { error = "Error en envío de correo o proceso", detalle = ex.Message });
+            }
         }
+    }
+
+    public class CrearQrDto
+    {
+        public decimal Monto { get; set; }
+        public string EmailCliente { get; set; } = string.Empty;
     }
 
     public class NotificacionPagoDto
