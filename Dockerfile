@@ -1,5 +1,5 @@
 # 1. Etapa de compilación
-FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
 # Copiar todo el código fuente al contenedor
@@ -12,7 +12,7 @@ RUN dotnet restore "src/MiPos.API/MiPos.API.csproj"
 RUN dotnet publish "src/MiPos.API/MiPos.API.csproj" -c Release -o /app/publish /p:UseAppHost=false
 
 # 2. Etapa de ejecución (runtime)
-FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
 COPY --from=build /app/publish .
 
