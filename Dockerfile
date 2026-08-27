@@ -2,19 +2,14 @@
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
 
-# Copiar todos los archivos .csproj manteniendo la estructura
-COPY ["src/MiPos.API/*.csproj", "src/MiPos.API/"]
-COPY ["src/MiPos.Shared/*.csproj", "src/MiPos.Shared/"]
-
-# Restaurar dependencias
-RUN dotnet restore "src/MiPos.API/MiPos.API.csproj"
-
-# Copiar el resto del código fuente
+# Copiar todo el código fuente al contenedor
 COPY . .
 
-# Compilar y publicar
-WORKDIR "/src/src/MiPos.API"
-RUN dotnet publish "MiPos.API.csproj" -c Release -o /app/publish /p:UseAppHost=false
+# Restaurar dependencias usando la solución o el proyecto
+RUN dotnet restore "src/MiPos.API/MiPos.API.csproj"
+
+# Publicar el proyecto de la API
+RUN dotnet publish "src/MiPos.API/MiPos.API.csproj" -c Release -o /app/publish /p:UseAppHost=false
 
 # 2. Etapa de ejecución (runtime)
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
