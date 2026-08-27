@@ -1,0 +1,14 @@
+# Compilación y binarios
+bin/
+obj/
+.vs/
+.idea/
+
+# Credenciales y archivos sensibles
+appsettings.json
+appsettings.Development.json
+*.user
+
+# Archivos de publicación
+publish/
+*.apk
