@@ -2,60 +2,167 @@ using MailKit.Net.Smtp;
 using MailKit.Security;
 using MimeKit;
 using MimeKit.Text;
-using Microsoft.Extensions.Configuration;
 
 namespace MiPos.API.Services
 {
-    public interface IEmailService
+public interface IEmailService
+{
+Task EnviarComprobanteAsync(
+string emailDestino,
+string numeroComprobante,
+decimal monto,
+string fecha
+);
+}
+
+```
+public class EmailService : IEmailService
+{
+    private readonly IConfiguration _config;
+    private readonly ILogger<EmailService> _logger;
+
+    public EmailService(
+        IConfiguration config,
+        ILogger<EmailService> logger)
     {
-        Task EnviarComprobanteAsync(string emailDestino, string numeroComprobante, decimal monto, string fecha);
+        _config = config;
+        _logger = logger;
     }
 
-    public class EmailService : IEmailService
+    public async Task EnviarComprobanteAsync(
+        string emailDestino,
+        string numeroComprobante,
+        decimal monto,
+        string fecha)
     {
-        private readonly IConfiguration _config;
+        var host = _config["Smtp:Host"];
+        var user = _config["Smtp:User"];
+        var pass = _config["Smtp:Password"];
 
-        public EmailService(IConfiguration config)
+        if (!int.TryParse(_config["Smtp:Port"], out int port))
         {
-            _config = config;
+            port = 587;
         }
 
-        public async Task EnviarComprobanteAsync(string emailDestino, string numeroComprobante, decimal monto, string fecha)
+        _logger.LogInformation(
+            "[EMAIL] Intentando enviar comprobante a {Email}. SMTP Host={Host}, Port={Port}, UsuarioConfigurado={Usuario}",
+            emailDestino,
+            host,
+            port,
+            !string.IsNullOrEmpty(user)
+        );
+
+        if (string.IsNullOrEmpty(host) ||
+            string.IsNullOrEmpty(user) ||
+            string.IsNullOrEmpty(pass))
         {
-            var host = _config["Smtp:Host"];
-            var user = _config["Smtp:User"];
-            var pass = _config["Smtp:Password"];
+            _logger.LogError(
+                "[EMAIL ERROR] Configuración SMTP incompleta. Host={HostOk}, User={UserOk}, Password={PassOk}",
+                !string.IsNullOrEmpty(host),
+                !string.IsNullOrEmpty(user),
+                !string.IsNullOrEmpty(pass)
+            );
 
-            // Si los parámetros SMTP no están configurados en appsettings.json, evitamos la conexión
-            if (string.IsNullOrEmpty(host) || string.IsNullOrEmpty(user) || string.IsNullOrEmpty(pass))
-            {
-                return;
-            }
+            throw new Exception("Configuración SMTP incompleta.");
+        }
 
-            var message = new MimeMessage();
-            message.From.Add(new MailboxAddress("Mi Comercio POS", user));
-            message.To.Add(new MailboxAddress("", emailDestino));
-            message.Subject = $"Comprobante de Pago #{numeroComprobante}";
+        var message = new MimeMessage();
 
-            string htmlBody = $@"
-                <div style='font-family: Arial, sans-serif; padding: 20px; border: 1px solid #ddd; max-width: 400px; margin: 0 auto;'>
-                    <h2 style='text-align: center; color: #2e7d32;'>¡Pago Confirmado!</h2>
-                    <hr/>
-                    <p><strong>Comprobante:</strong> #{numeroComprobante}</p>
-                    <p><strong>Fecha:</strong> {fecha}</p>
-                    <h3 style='background-color: #f5f5f5; padding: 10px; text-align: center;'>Total: ${monto:N2}</h3>
-                </div>";
+        message.From.Add(
+            new MailboxAddress("Mi Comercio POS", user)
+        );
 
-            message.Body = new TextPart(TextFormat.Html) { Text = htmlBody };
+        message.To.Add(
+            MailboxAddress.Parse(emailDestino)
+        );
 
-            using var client = new SmtpClient();
-            if (int.TryParse(_config["Smtp:Port"], out int port))
-            {
-                await client.ConnectAsync(host, port, SecureSocketOptions.StartTls);
-                await client.AuthenticateAsync(user, pass);
-                await client.SendAsync(message);
-                await client.DisconnectAsync(true);
-            }
+        message.Subject =
+            $"Comprobante de Pago #{numeroComprobante}";
+
+        string htmlBody = $@"
+            <div style='font-family:Arial,sans-serif;padding:20px;border:1px solid #ddd;max-width:400px;margin:auto;'>
+
+                <h2 style='text-align:center;color:#2e7d32;'>
+                    ¡Pago Confirmado!
+                </h2>
+
+                <hr/>
+
+                <p>
+                    <strong>Comprobante:</strong>
+                    #{numeroComprobante}
+                </p>
+
+                <p>
+                    <strong>Fecha:</strong>
+                    {fecha}
+                </p>
+
+                <h3 style='background:#f5f5f5;padding:10px;text-align:center;'>
+                    Total: ${monto:N2}
+                </h3>
+
+                <p style='text-align:center;color:#777;font-size:12px;'>
+                    Gracias por utilizar Mi Comercio POS
+                </p>
+
+            </div>";
+
+        message.Body = new TextPart(TextFormat.Html)
+        {
+            Text = htmlBody
+        };
+
+        using var client = new SmtpClient();
+
+        try
+        {
+            _logger.LogInformation(
+                "[EMAIL] Conectando a SMTP {Host}:{Port}",
+                host,
+                port
+            );
+
+            await client.ConnectAsync(
+                host,
+                port,
+                SecureSocketOptions.StartTls
+            );
+
+            _logger.LogInformation(
+                "[EMAIL] Autenticando usuario SMTP"
+            );
+
+            await client.AuthenticateAsync(
+                user,
+                pass
+            );
+
+            _logger.LogInformation(
+                "[EMAIL] Enviando mensaje"
+            );
+
+            await client.SendAsync(message);
+
+            await client.DisconnectAsync(true);
+
+            _logger.LogInformation(
+                "[EMAIL OK] Comprobante enviado correctamente a {Email}",
+                emailDestino
+            );
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "[EMAIL ERROR] No se pudo enviar correo a {Email}",
+                emailDestino
+            );
+
+            throw;
         }
     }
+}
+
+
 }
