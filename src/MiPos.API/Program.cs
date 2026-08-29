@@ -4,163 +4,58 @@ using MiPos.API.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// ==========================================
-// PUERTO PARA RENDER / DOCKER
-// ==========================================
+// Configuración de puerto para Render / Docker
+var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
+builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
 
-var port = Environment.GetEnvironmentVariable("PORT");
-
-if (string.IsNullOrWhiteSpace(port))
+builder.Services.Configure<Microsoft.AspNetCore.HostFiltering.HostFilteringOptions>(options =>
 {
-    port = "8080";
-}
-
-builder.WebHost.ConfigureKestrel(options =>
-{
-    options.ListenAnyIP(int.Parse(port));
+    options.AllowedHosts = new[] { "*" };
 });
 
-
-// ==========================================
-// MERCADO PAGO
-// ==========================================
-
-var accessToken =
-    builder.Configuration["MercadoPago:AccessToken"]
+// Configuración de MercadoPago (Soporta appsettings.json y Variables de Entorno de Render)
+string accessToken = builder.Configuration["MercadoPago:AccessToken"] 
+    ?? builder.Configuration["MercadoPago__AccessToken"]
+    ?? Environment.GetEnvironmentVariable("MercadoPago__AccessToken") 
+    ?? Environment.GetEnvironmentVariable("MercadoPago:AccessToken")
     ?? "";
 
-if (!string.IsNullOrWhiteSpace(accessToken))
+if (!string.IsNullOrEmpty(accessToken))
 {
     MercadoPagoConfig.AccessToken = accessToken;
-
-    Console.WriteLine(
-        "[INIT] MercadoPago configurado correctamente."
-    );
+    string tokenInicio = accessToken.Substring(0, Math.Min(8, accessToken.Length));
+    Console.WriteLine($"[INIT] MercadoPagoConfig configurado con exito. Token inicia en: {tokenInicio}");
 }
 else
 {
-    Console.WriteLine(
-        "[ERROR] No se encontró MercadoPago AccessToken."
-    );
+    Console.WriteLine("[ERROR] No se encontro AccessToken de MercadoPago en la configuracion.");
 }
 
-
-// ==========================================
-// SMTP - VERIFICACIÓN DE CONFIGURACIÓN
-// ==========================================
-
-var smtpHost = builder.Configuration["Smtp:Host"];
-var smtpPort = builder.Configuration["Smtp:Port"];
-var smtpUsername = builder.Configuration["Smtp:Username"];
-var smtpPassword = builder.Configuration["Smtp:Password"];
-
-Console.WriteLine(
-    $"[SMTP] Host configurado: {!string.IsNullOrWhiteSpace(smtpHost)}"
-);
-
-Console.WriteLine(
-    $"[SMTP] Puerto: {smtpPort ?? "NO CONFIGURADO"}"
-);
-
-Console.WriteLine(
-    $"[SMTP] Usuario configurado: {!string.IsNullOrWhiteSpace(smtpUsername)}"
-);
-
-Console.WriteLine(
-    $"[SMTP] Password configurado: {!string.IsNullOrWhiteSpace(smtpPassword)}"
-);
-
-
-// ==========================================
-// CORS
-// ==========================================
-
-builder.Services.AddCors(options =>
-{
-    options.AddPolicy("AllowAll", policy =>
-    {
-        policy
-            .SetIsOriginAllowed(_ => true)
-            .AllowAnyMethod()
-            .AllowAnyHeader()
-            .AllowCredentials();
-    });
-});
-
-
-// ==========================================
-// SERVICIOS
-// ==========================================
-
 builder.Services.AddControllers();
-
 builder.Services.AddSignalR();
-
 builder.Services.AddScoped<IEmailService, EmailService>();
-
 builder.Services.AddEndpointsApiExplorer();
-
 builder.Services.AddSwaggerGen();
-
-
-// ==========================================
-// CONSTRUIR APLICACIÓN
-// ==========================================
 
 var app = builder.Build();
 
+// Redirigir la raiz (/) directamente a Swagger
+app.MapGet("/", context =>
+{
+    context.Response.Redirect("/swagger/index.html");
+    return Task.CompletedTask;
+});
 
-// ==========================================
-// MIDDLEWARE
-// ==========================================
-
-app.UseCors("AllowAll");
-
-
-// ==========================================
-// SWAGGER
-// ==========================================
-
+// Habilitar Swagger en TODOS los entornos (Development y Production)
 app.UseSwagger();
-
 app.UseSwaggerUI(c =>
 {
-    c.SwaggerEndpoint(
-        "/swagger/v1/swagger.json",
-        "MiPos API v1"
-    );
-
+    c.SwaggerEndpoint("/swagger/v1/swagger.json", "MiPos API v1");
     c.RoutePrefix = "swagger";
 });
 
-
-// ==========================================
-// RUTA PRINCIPAL / HEALTH CHECK
-// ==========================================
-
-app.MapGet("/", () =>
-{
-    return Results.Ok(new
-    {
-        status = "online",
-        service = "MiPos API"
-    });
-});
-
-
-// ==========================================
-// ENDPOINTS
-// ==========================================
-
 app.UseAuthorization();
-
 app.MapControllers();
-
 app.MapHub<PagoHub>("/pagohub");
-
-
-// ==========================================
-// INICIAR API
-// ==========================================
 
 app.Run();
