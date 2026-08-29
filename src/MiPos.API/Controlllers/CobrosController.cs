@@ -74,145 +74,58 @@ namespace MiPos.API.Controllers
         }
 
         // WEBHOOK REAL QUE INVOCARÁ MERCADO PAGO
-      [HttpPost("webhook-mp")]
-public async Task<IActionResult> WebhookMercadoPago(
-    [FromQuery] string? type,
-    [FromQuery] string? topic,
-    [FromQuery(Name = "data.id")] string? dataId,
-    [FromQuery] string? id)
-{
-    try
-    {
-        string paymentIdStr = dataId ?? id ?? "";
-        string eventoTipo = type ?? topic ?? "";
-
-        Console.WriteLine(
-            $"[WEBHOOK RECIBIDO] Tipo: {eventoTipo} | Payment ID: {paymentIdStr}"
-        );
-
-        if ((eventoTipo == "payment" || eventoTipo == "collection") &&
-            long.TryParse(paymentIdStr, out long paymentId))
+        [HttpPost("webhook-mp")]
+        public async Task<IActionResult> WebhookMercadoPago([FromQuery] string? type, [FromQuery] string? topic, [FromQuery(Name = "data.id")] string? dataId, [FromQuery] string? id)
         {
-            var paymentClient = new PaymentClient();
-            Payment payment = await paymentClient.GetAsync(paymentId);
-
-            Console.WriteLine(
-                $"[ESTADO PAGO MP] ID: {payment.Id} | Estado: {payment.Status} | ExternalRef: {payment.ExternalReference}"
-            );
-
-            // Comparación segura
-            if (string.Equals(
-                payment.Status?.ToString(),
-                "approved",
-                StringComparison.OrdinalIgnoreCase))
+            try
             {
-                Console.WriteLine("[PAGO APROBADO] Entrando al procesamiento.");
+                // Mercado Pago envía el ID del pago en data.id o en id según la versión
+                string paymentIdStr = dataId ?? id ?? "";
+                string eventoTipo = type ?? topic ?? "";
 
-                string intentId =
-                    payment.ExternalReference ?? Guid.NewGuid().ToString();
+                Console.WriteLine($"[WEBHOOK RECIBIDO] Tipo: {eventoTipo} | Payment ID: {paymentIdStr}");
 
-                decimal monto =
-                    payment.TransactionAmount ?? 0m;
-
-                string emailCliente =
-                    payment.Payer?.Email ?? "";
-
-                Console.WriteLine(
-                    $"[PAGO APROBADO] IntentId={intentId}"
-                );
-
-                Console.WriteLine(
-                    $"[PAGO APROBADO] Email={emailCliente}"
-                );
-
-                // SIGNALR
-                try
+                // Verificamos si el evento es sobre un pago
+                if ((eventoTipo == "payment" || eventoTipo == "collection") && long.TryParse(paymentIdStr, out long paymentId))
                 {
-                    Console.WriteLine(
-                        "[SIGNALR] Enviando evento PagoConfirmado..."
-                    );
+                    // Consultamos el estado real del pago mediante la SDK
+                    var paymentClient = new PaymentClient();
+                    Payment payment = await paymentClient.GetAsync(paymentId);
 
-                    await _hubContext.Clients.All.SendAsync(
-                        "PagoConfirmado",
-                        intentId,
-                        monto
-                    );
+                    Console.WriteLine($"[ESTADO PAGO MP] ID: {payment.Id} | Estado: {payment.Status} | ExternalRef: {payment.ExternalReference}");
 
-                    Console.WriteLine(
-                        "[SIGNALR OK] Evento enviado."
-                    );
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine(
-                        $"[SIGNALR ERROR] {ex.Message}"
-                    );
-                }
-
-                // EMAIL
-                if (!string.IsNullOrWhiteSpace(emailCliente) &&
-                    !emailCliente.Contains("@mipos.com"))
-                {
-                    try
+                    // Si el pago fue APROBADO
+                    if (payment.Status == PaymentStatus.Approved)
                     {
-                        Console.WriteLine(
-                            $"[EMAIL] Intentando enviar a: {emailCliente}"
-                        );
+                        string intentId = payment.ExternalReference ?? Guid.NewGuid().ToString();
+                        decimal monto = payment.TransactionAmount ?? 0m;
+                        string emailCliente = payment.Payer?.Email ?? "";
 
-                        string fechaActual =
-                            DateTime.Now.ToString("dd/MM/yyyy HH:mm");
+                        // 1. Notificamos a la App móvil / Frontend vía SignalR
+                        await _hubContext.Clients.All.SendAsync("PagoConfirmado", intentId, monto);
 
-                        string comprobanteId =
-                            payment.Id?.ToString()
-                            ?? intentId.Substring(
-                                0,
-                                Math.Min(8, intentId.Length)
-                            );
+                        // 2. Enviamos el comprobante por Email si hay destinatario
+                        if (!string.IsNullOrEmpty(emailCliente) && !emailCliente.Contains("@mipos.com"))
+                        {
+                            string fechaActual = DateTime.Now.ToString("dd/MM/yyyy HH:mm");
+                            string comprobanteId = payment.Id.HasValue ? payment.Id.Value.ToString() : intentId.Substring(0, 8);
 
-                        await _emailService.EnviarComprobanteAsync(
-                            emailCliente,
-                            comprobanteId,
-                            monto,
-                            fechaActual
-                        );
-
-                        Console.WriteLine(
-                            "[EMAIL OK] Comprobante enviado correctamente."
-                        );
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine(
-                            $"[EMAIL ERROR] {ex.Message}"
-                        );
+                            await _emailService.EnviarComprobanteAsync(emailCliente, comprobanteId, monto, fechaActual);
+                            Console.WriteLine($"[EMAIL ENVIADO] Comprobante enviado a {emailCliente}");
+                        }
                     }
                 }
-                else
-                {
-                    Console.WriteLine(
-                        $"[EMAIL OMITIDO] Email inválido o temporal: '{emailCliente}'"
-                    );
-                }
+
+                // Responder siempre HTTP 200 OK a Mercado Pago
+                return Ok();
             }
-            else
+            catch (Exception ex)
             {
-                Console.WriteLine(
-                    $"[PAGO NO APROBADO] Estado recibido: {payment.Status}"
-                );
+                Console.WriteLine($"[ERROR WEBHOOK] {ex.Message}");
+                // Retornar 200 OK de todos modos para que MP no reintente agresivamente si fue error interno
+                return Ok();
             }
         }
-
-        return Ok();
-    }
-    catch (Exception ex)
-    {
-        Console.WriteLine(
-            $"[ERROR WEBHOOK] {ex}"
-        );
-
-        return Ok();
-    }
-}
 
         // Endpoint manual (mantenido por compatibilidad si lo llamas manualmente desde la app)
         [HttpPost("notificar-pago")]
