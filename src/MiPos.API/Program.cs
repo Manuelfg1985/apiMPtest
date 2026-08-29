@@ -31,6 +31,21 @@ else
     Console.WriteLine("[ERROR] No se encontro AccessToken de MercadoPago en la configuracion.");
 }
 
+// Configuración de CORS para SignalR y peticiones externas
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowAll", policy =>
+    {
+        policy.SetIsOriginAllowed(_ => true)
+              .AllowAnyMethod()
+              .AllowAnyHeader()
+              .AllowCredentials(); // Requerido por SignalR
+    });
+});
+
+// Vincula las variables Smtp__Host, Smtp__Port, Smtp__User, Smtp__Password de Render a SmtpSettings
+builder.Services.Configure<SmtpSettings>(builder.Configuration.GetSection("Smtp"));
+
 builder.Services.AddControllers();
 builder.Services.AddSignalR();
 builder.Services.AddScoped<IEmailService, EmailService>();
@@ -38,6 +53,8 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
+
+app.UseCors("AllowAll");
 
 // Redirigir la raiz (/) directamente a Swagger
 app.MapGet("/", context =>
