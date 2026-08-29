@@ -1,60 +1,64 @@
-using MailKit.Net.Smtp;
-using MailKit.Security;
-using MimeKit;
-using MimeKit.Text;
-using Microsoft.Extensions.Configuration;
+using System.Net;
+using System.Net.Mail;
+using Microsoft.Extensions.Options;
 
 namespace MiPos.API.Services
 {
     public interface IEmailService
     {
-        Task EnviarComprobanteAsync(string emailDestino, string numeroComprobante, decimal monto, string fecha);
+        Task EnviarComprobanteAsync(string emailDestino, string comprobanteId, decimal monto, string fecha);
+    }
+
+    public class SmtpSettings
+    {
+        public string Host { get; set; } = string.Empty;
+        public int Port { get; set; } = 587;
+        public string User { get; set; } = string.Empty;
+        public string Password { get; set; } = string.Empty;
     }
 
     public class EmailService : IEmailService
     {
-        private readonly IConfiguration _config;
+        private readonly SmtpSettings _smtpSettings;
 
-        public EmailService(IConfiguration config)
+        public EmailService(IOptions<SmtpSettings> smtpSettings)
         {
-            _config = config;
+            _smtpSettings = smtpSettings.Value;
         }
 
-        public async Task EnviarComprobanteAsync(string emailDestino, string numeroComprobante, decimal monto, string fecha)
+        public async Task EnviarComprobanteAsync(string emailDestino, string comprobanteId, decimal monto, string fecha)
         {
-            var host = _config["Smtp:Host"];
-            var user = _config["Smtp:User"];
-            var pass = _config["Smtp:Password"];
-
-            // Si los parámetros SMTP no están configurados en appsettings.json, evitamos la conexión
-            if (string.IsNullOrEmpty(host) || string.IsNullOrEmpty(user) || string.IsNullOrEmpty(pass))
+            if (string.IsNullOrWhiteSpace(_smtpSettings.Host) || string.IsNullOrWhiteSpace(_smtpSettings.User))
             {
-                return;
+                throw new InvalidOperationException($"[EMAIL CONFIG ERROR] Host o User vacíos en Render. Host: '{_smtpSettings.Host}', User: '{_smtpSettings.User}'");
             }
 
-            var message = new MimeMessage();
-            message.From.Add(new MailboxAddress("Mi Comercio POS", user));
-            message.To.Add(new MailboxAddress("", emailDestino));
-            message.Subject = $"Comprobante de Pago #{numeroComprobante}";
-
-            string htmlBody = $@"
-                <div style='font-family: Arial, sans-serif; padding: 20px; border: 1px solid #ddd; max-width: 400px; margin: 0 auto;'>
-                    <h2 style='text-align: center; color: #2e7d32;'>¡Pago Confirmado!</h2>
-                    <hr/>
-                    <p><strong>Comprobante:</strong> #{numeroComprobante}</p>
-                    <p><strong>Fecha:</strong> {fecha}</p>
-                    <h3 style='background-color: #f5f5f5; padding: 10px; text-align: center;'>Total: ${monto:N2}</h3>
-                </div>";
-
-            message.Body = new TextPart(TextFormat.Html) { Text = htmlBody };
-
-            using var client = new SmtpClient();
-            if (int.TryParse(_config["Smtp:Port"], out int port))
+            using (var client = new SmtpClient(_smtpSettings.Host, _smtpSettings.Port))
             {
-                await client.ConnectAsync(host, port, SecureSocketOptions.StartTls);
-                await client.AuthenticateAsync(user, pass);
-                await client.SendAsync(message);
-                await client.DisconnectAsync(true);
+                client.UseDefaultCredentials = false;
+                client.Credentials = new NetworkCredential(_smtpSettings.User, _smtpSettings.Password);
+                client.EnableSsl = true;
+                client.DeliveryMethod = SmtpDeliveryMethod.Network;
+                client.Timeout = 10000; // 10 segundos max de timeout (evita cuelgues de 2 min)
+
+                var mailMessage = new MailMessage
+                {
+                    From = new MailAddress(_smtpSettings.User, "Mi POS"),
+                    Subject = $"Comprobante de Pago #{comprobanteId}",
+                    Body = $@"
+                        <h2>¡Gracias por tu compra!</h2>
+                        <p>Hemos procesado tu pago exitosamente.</p>
+                        <ul>
+                            <li><strong>Comprobante N°:</strong> {comprobanteId}</li>
+                            <li><strong>Monto:</strong> ${monto:N2} ARS</li>
+                            <li><strong>Fecha:</strong> {fecha}</li>
+                        </ul>",
+                    IsBodyHtml = true
+                };
+
+                mailMessage.To.Add(emailDestino);
+
+                await client.SendMailAsync(mailMessage);
             }
         }
     }
