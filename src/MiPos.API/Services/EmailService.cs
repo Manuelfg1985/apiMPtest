@@ -1,9 +1,8 @@
 using System;
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
-using MailKit.Net.Smtp;
-using MailKit.Security;
-using Microsoft.Extensions.Options;
-using MimeKit;
 
 namespace MiPos.API.Services
 {
@@ -12,81 +11,37 @@ namespace MiPos.API.Services
         Task EnviarComprobanteAsync(string emailDestino, string comprobanteId, decimal monto, string fecha);
     }
 
-    public class SmtpSettings
-    {
-        public string Host { get; set; } = string.Empty;
-        public int Port { get; set; } = 587;
-        public string User { get; set; } = string.Empty;
-        public string Password { get; set; } = string.Empty;
-    }
-
     public class EmailService : IEmailService
     {
-        private readonly SmtpSettings _smtpSettings;
+        private readonly HttpClient _httpClient;
 
-        public EmailService(IOptions<SmtpSettings> smtpSettings)
+        public EmailService()
         {
-            _smtpSettings = smtpSettings.Value ?? new SmtpSettings();
-
-            // Carga de respaldo desde variables de entorno de Render
-            if (string.IsNullOrWhiteSpace(_smtpSettings.Host))
-            {
-                _smtpSettings.Host = Environment.GetEnvironmentVariable("Smtp__Host") 
-                                  ?? Environment.GetEnvironmentVariable("SMTP_HOST") 
-                                  ?? "smtp-relay.brevo.com";
-            }
-
-            if (string.IsNullOrWhiteSpace(_smtpSettings.User))
-            {
-                _smtpSettings.User = Environment.GetEnvironmentVariable("Smtp__User") 
-                                  ?? Environment.GetEnvironmentVariable("SMTP_USER") 
-                                  ?? "";
-            }
-
-            if (string.IsNullOrWhiteSpace(_smtpSettings.Password))
-            {
-                _smtpSettings.Password = Environment.GetEnvironmentVariable("Smtp__Password") 
-                                      ?? Environment.GetEnvironmentVariable("SMTP_PASSWORD") 
-                                      ?? "";
-            }
-
-            if (_smtpSettings.Port == 0 || _smtpSettings.Port == 587)
-            {
-                var portVar = Environment.GetEnvironmentVariable("Smtp__Port") 
-                           ?? Environment.GetEnvironmentVariable("SMTP_PORT");
-
-                if (int.TryParse(portVar, out int parsedPort))
-                {
-                    _smtpSettings.Port = parsedPort;
-                }
-                else
-                {
-                    _smtpSettings.Port = 587;
-                }
-            }
+            _httpClient = new HttpClient();
         }
 
         public async Task EnviarComprobanteAsync(string emailDestino, string comprobanteId, decimal monto, string fecha)
         {
-            if (string.IsNullOrWhiteSpace(_smtpSettings.Host) || string.IsNullOrWhiteSpace(_smtpSettings.User))
+            // Obtener la API Key de Brevo desde las variables de entorno de Render
+            var apiKey = Environment.GetEnvironmentVariable("BREVO_API_KEY") 
+                        ?? Environment.GetEnvironmentVariable("Smtp__Password") 
+                        ?? "";
+
+            if (string.IsNullOrWhiteSpace(apiKey))
             {
-                var errorMsg = $"[EMAIL CONFIG ERROR] Host o User vacíos. Host: '{_smtpSettings.Host}', User: '{_smtpSettings.User}'";
+                var errorMsg = "[EMAIL CONFIG ERROR] No se encontró la API Key de Brevo (BREVO_API_KEY).";
                 Console.WriteLine(errorMsg);
                 throw new InvalidOperationException(errorMsg);
             }
 
-            Console.WriteLine($"[EMAIL SERVICE] Enviando comprobante a '{emailDestino}' vía MailKit ({_smtpSettings.Host}:{_smtpSettings.Port})...");
+            Console.WriteLine($"[EMAIL SERVICE] Enviando comprobante a '{emailDestino}' vía API REST de Brevo...");
 
-            var message = new MimeMessage();
-            
-            // NOTA: El primer parámetro debe ser una dirección asociada/verificada en tu cuenta de Brevo
-            message.From.Add(new MailboxAddress("Mi POS", _smtpSettings.User));
-            message.To.Add(new MailboxAddress("", emailDestino));
-            message.Subject = $"Comprobante de Pago #{comprobanteId}";
-
-            var bodyBuilder = new BodyBuilder
+            var payload = new
             {
-                HtmlBody = $@"
+                sender = new { name = "Mi POS", email = "no-reply@mipos.com" }, // Cambiar por tu mail verificado en Brevo si aplica
+                to = new[] { new { email = emailDestino } },
+                subject = $"Comprobante de Pago #{comprobanteId}",
+                htmlContent = $@"
                     <!DOCTYPE html>
                     <html>
                     <head>
@@ -123,32 +78,23 @@ namespace MiPos.API.Services
                     </html>"
             };
 
-            message.Body = bodyBuilder.ToMessageBody();
+            var jsonContent = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
 
-            using var client = new SmtpClient();
-            
-            // Configurar timeout defensivo de 10 segundos
-            client.Timeout = 10000;
+            using var request = new HttpRequestMessage(HttpMethod.Post, "https://api.brevo.com/v3/smtp/email");
+            request.Headers.Add("api-key", apiKey);
+            request.Content = jsonContent;
 
-            try
+            var response = await _httpClient.SendAsync(request);
+
+            if (response.IsSuccessStatusCode)
             {
-                // MailKit maneja la negociación STARTTLS de forma transparente en el puerto 587
-                await client.ConnectAsync(_smtpSettings.Host, _smtpSettings.Port, SecureSocketOptions.StartTls);
-
-                if (!string.IsNullOrEmpty(_smtpSettings.User) && !string.IsNullOrEmpty(_smtpSettings.Password))
-                {
-                    await client.AuthenticateAsync(_smtpSettings.User, _smtpSettings.Password);
-                }
-
-                await client.SendAsync(message);
-                await client.DisconnectAsync(true);
-
-                Console.WriteLine($"[EMAIL SERVICE OK] Comprobante enviado exitosamente a '{emailDestino}'.");
+                Console.WriteLine($"[EMAIL SERVICE OK] Comprobante enviado exitosamente a '{emailDestino}' vía API.");
             }
-            catch (Exception ex)
+            else
             {
-                Console.WriteLine($"[EMAIL SERVICE ERROR] Falló el envío con MailKit: {ex.Message}");
-                throw;
+                var errorBody = await response.Content.ReadAsStringAsync();
+                Console.WriteLine($"[EMAIL SERVICE ERROR] Brevo API respondió {response.StatusCode}: {errorBody}");
+                throw new HttpRequestException($"Error de Brevo API: {errorBody}");
             }
         }
     }
