@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using MercadoPago.Client.Payment;
 using MercadoPago.Client.Preference;
+using MercadoPago.Exception;
 using MercadoPago.Resource.Payment;
 using MercadoPago.Resource.Preference;
 using Microsoft.AspNetCore.Mvc;
@@ -88,13 +89,22 @@ namespace MiPos.API.Controllers
                     initPoint = preference.InitPoint
                 });
             }
-            catch (MercadoPago.Error.MPApiException mpEx)
+            catch (MercadoPagoApiException mpEx)
             {
-                Console.WriteLine($"[MP API ERROR] Code: {mpEx.StatusCode} | Message: {mpEx.ApiResponse?.Content}");
-                return StatusCode((int)(mpEx.StatusCode ?? System.Net.HttpStatusCode.InternalServerError), new
+                Console.WriteLine($"[MP API ERROR] Status: {mpEx.StatusCode} | Content: {mpEx.ApiResponse?.Content}");
+                return StatusCode((int)mpEx.StatusCode, new
                 {
                     error = "Error devuelto por Mercado Pago",
-                    detalle = mpEx.ApiResponse?.Content
+                    detalle = mpEx.ApiResponse?.Content ?? mpEx.Message
+                });
+            }
+            catch (MercadoPagoException mpEx)
+            {
+                Console.WriteLine($"[MP ERROR] {mpEx.Message}");
+                return StatusCode(500, new
+                {
+                    error = "Error del SDK de Mercado Pago",
+                    detalle = mpEx.Message
                 });
             }
             catch (Exception ex)
@@ -113,7 +123,6 @@ namespace MiPos.API.Controllers
                 var body = await reader.ReadToEndAsync();
                 Console.WriteLine($"[WEBHOOK RECIBIDO] Type: {type} | DataID: {dataId} | Body: {body}");
 
-                // Mercado Pago notifica bajo tipo 'payment' o 'payment.created'
                 if (type == "payment" || !string.IsNullOrEmpty(dataId))
                 {
                     string idToFetch = !string.IsNullOrEmpty(dataId) ? dataId : extractPaymentIdFromBody(body);
@@ -131,7 +140,7 @@ namespace MiPos.API.Controllers
                             decimal monto = payment.TransactionAmount ?? 0m;
                             string emailCliente = payment.Payer?.Email ?? "";
 
-                            // 1. Notificar inmediatamente al cliente frontend por SignalR
+                            // 1. Notificar en tiempo real al frontend vía SignalR
                             await _hubContext.Clients.All.SendAsync("PagoAprobado", new
                             {
                                 intentId = intentId,
@@ -142,7 +151,7 @@ namespace MiPos.API.Controllers
 
                             Console.WriteLine($"[SIGNALR NOTIFIED] PagoAprobado emitido para IntentID: {intentId}");
 
-                            // 2. Disparar el envío de correo de forma asíncrona (Background)
+                            // 2. Disparar el envío de correo de forma asíncrona en segundo plano
                             if (!string.IsNullOrWhiteSpace(emailCliente))
                             {
                                 _ = Task.Run(async () =>
@@ -171,7 +180,7 @@ namespace MiPos.API.Controllers
             catch (Exception ex)
             {
                 Console.WriteLine($"[WEBHOOK ERROR] {ex.Message}");
-                return Ok(); // Devolver 200 siempre a MP para evitar reintentos continuos
+                return Ok(); // Siempre retornar 200 a Mercado Pago para evitar que retente indefinidamente
             }
         }
 
