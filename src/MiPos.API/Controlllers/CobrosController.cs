@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 using MercadoPago.Client;
@@ -219,7 +220,7 @@ namespace MiPos.API.Controllers
                 };
 
                 var searchResult = await client.SearchAsync(searchRequest);
-                var payment = searchResult.Results.Find(p => p.Status == PaymentStatus.Approved);
+                var payment = searchResult.Results.FirstOrDefault(p => p.Status == PaymentStatus.Approved);
 
                 if (payment != null)
                 {
