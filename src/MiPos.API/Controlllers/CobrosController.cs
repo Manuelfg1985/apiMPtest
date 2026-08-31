@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
 using System.Threading.Tasks;
+using MercadoPago.Client;
 using MercadoPago.Client.Payment;
 using MercadoPago.Client.Preference;
 using MercadoPago.Resource.Payment;
@@ -197,8 +198,46 @@ namespace MiPos.API.Controllers
             catch (Exception ex)
             {
                 Console.WriteLine($"[WEBHOOK ERROR GENERAL] {ex.Message}");
-                // Retornar 200 OK a Mercado Pago para evitar que reintente notificaciones en bucle
+                // Retornar 200 OK a Mercado Pago para evitar reintentos en bucle
                 return Ok();
+            }
+        }
+
+        [HttpGet("estado-pago/{intentId}")]
+        public async Task<IActionResult> ObtenerEstadoPago(string intentId)
+        {
+            try
+            {
+                var client = new PaymentClient();
+                
+                var searchRequest = new MPSearchRequest
+                {
+                    Filters = new Dictionary<string, object>
+                    {
+                        { "external_reference", intentId }
+                    }
+                };
+
+                var searchResult = await client.SearchAsync(searchRequest);
+                var payment = searchResult.Results.Find(p => p.Status == PaymentStatus.Approved);
+
+                if (payment != null)
+                {
+                    return Ok(new
+                    {
+                        aprobado = true,
+                        intentId = intentId,
+                        paymentId = payment.Id,
+                        monto = payment.TransactionAmount
+                    });
+                }
+
+                return Ok(new { aprobado = false, intentId = intentId });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[CONSULTA ESTADO ERROR] {ex.Message}");
+                return Ok(new { aprobado = false, error = ex.Message });
             }
         }
 
