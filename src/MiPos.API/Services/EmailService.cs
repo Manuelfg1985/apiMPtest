@@ -27,8 +27,6 @@ namespace MiPos.API.Services
         {
             _smtpSettings = smtpSettings.Value ?? new SmtpSettings();
 
-            // Respaldo directo de variables de entorno de Render
-            // Si el binder automático falla o si se configuró como SMTP_HOST / Smtp_Host
             if (string.IsNullOrWhiteSpace(_smtpSettings.Host))
             {
                 _smtpSettings.Host = Environment.GetEnvironmentVariable("Smtp__Host") 
@@ -65,14 +63,13 @@ namespace MiPos.API.Services
                 }
                 else
                 {
-                    _smtpSettings.Port = 587; // Puerto por defecto en Render (STARTTLS)
+                    _smtpSettings.Port = 587;
                 }
             }
         }
 
         public async Task EnviarComprobanteAsync(string emailDestino, string comprobanteId, decimal monto, string fecha)
         {
-            // Validar existencia de credenciales
             if (string.IsNullOrWhiteSpace(_smtpSettings.Host) || string.IsNullOrWhiteSpace(_smtpSettings.User))
             {
                 var errorMsg = $"[EMAIL CONFIG ERROR] Host o User vacíos en Render. Host: '{_smtpSettings.Host}', User: '{_smtpSettings.User}'";
@@ -80,7 +77,7 @@ namespace MiPos.API.Services
                 throw new InvalidOperationException(errorMsg);
             }
 
-            Console.WriteLine($"[EMAIL SERVICE] Intentando enviar correo a '{emailDestino}' mediante '{_smtpSettings.Host}:{_smtpSettings.Port}' (User: '{_smtpSettings.User}')...");
+            Console.WriteLine($"[EMAIL SERVICE] Intentando enviar correo a '{emailDestino}' mediante '{_smtpSettings.Host}:{_smtpSettings.Port}'...");
 
             using (var client = new SmtpClient(_smtpSettings.Host, _smtpSettings.Port))
             {
@@ -88,7 +85,7 @@ namespace MiPos.API.Services
                 client.Credentials = new NetworkCredential(_smtpSettings.User, _smtpSettings.Password);
                 client.EnableSsl = true;
                 client.DeliveryMethod = SmtpDeliveryMethod.Network;
-                client.Timeout = 10000; // 10 segundos máximo de espera para evitar cuelgues
+                client.Timeout = 10000; // 10 segundos máximo de espera
 
                 var mailMessage = new MailMessage
                 {
@@ -115,14 +112,12 @@ namespace MiPos.API.Services
                                 <div class='content'>
                                     <p>Hola,</p>
                                     <p>Tu pago ha sido procesado exitosamente. A continuación verás el resumen de la operación:</p>
-                                    
                                     <div class='details'>
                                         <p><strong>N° de Comprobante:</strong> {comprobanteId}</p>
                                         <p><strong>Monto Total:</strong> ${monto:N2} ARS</p>
                                         <p><strong>Fecha y Hora:</strong> {fecha}</p>
                                         <p><strong>Estado:</strong> Aprobado</p>
                                     </div>
-
                                     <p>Gracias por tu compra.</p>
                                 </div>
                                 <div class='footer'>
