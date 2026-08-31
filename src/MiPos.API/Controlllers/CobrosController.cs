@@ -92,7 +92,6 @@ namespace MiPos.API.Controllers
             {
                 Console.WriteLine($"[MP ERROR] {ex.GetType().Name}: {ex.Message}");
 
-                // Intentar obtener StatusCode y ApiResponse por reflexión para evitar incompatibilidades de versión del SDK
                 var statusCodeProp = ex.GetType().GetProperty("StatusCode");
                 var apiResponseProp = ex.GetType().GetProperty("ApiResponse");
 
@@ -135,24 +134,24 @@ namespace MiPos.API.Controllers
                 var body = await reader.ReadToEndAsync();
                 Console.WriteLine($"[WEBHOOK RECIBIDO] Type: {type} | DataID: {dataId} | Body: {body}");
 
-                if (type == "payment" || !string.IsNullOrEmpty(dataId))
+                string idToFetch = !string.IsNullOrEmpty(dataId) ? dataId : extractPaymentIdFromBody(body);
+
+                if ((type == "payment" || !string.IsNullOrEmpty(idToFetch)) && long.TryParse(idToFetch, out long paymentId))
                 {
-                    string idToFetch = !string.IsNullOrEmpty(dataId) ? dataId : extractPaymentIdFromBody(body);
+                    var client = new PaymentClient();
+                    Payment payment = await client.GetAsync(paymentId);
 
-                    if (!string.IsNullOrEmpty(idToFetch) && long.TryParse(idToFetch, out long paymentId))
+                    Console.WriteLine($"[MP PAYMENT STATUS] ID: {payment.Id} | Status: {payment.Status} | ExternalReference: {payment.ExternalReference}");
+
+                    if (payment.Status == PaymentStatus.Approved)
                     {
-                        var client = new PaymentClient();
-                        Payment payment = await client.GetAsync(paymentId);
+                        string intentId = payment.ExternalReference ?? payment.Id.ToString()!;
+                        decimal monto = payment.TransactionAmount ?? 0m;
+                        string emailCliente = payment.Payer?.Email ?? "";
 
-                        Console.WriteLine($"[MP PAYMENT STATUS] ID: {payment.Id} | Status: {payment.Status} | ExternalReference: {payment.ExternalReference}");
-
-                        if (payment.Status == PaymentStatus.Approved)
+                        // 1. Notificar en tiempo real al frontend vía SignalR inmediatamente
+                        try
                         {
-                            string intentId = payment.ExternalReference ?? payment.Id.ToString()!;
-                            decimal monto = payment.TransactionAmount ?? 0m;
-                            string emailCliente = payment.Payer?.Email ?? "";
-
-                            // 1. Notificar en tiempo real al frontend vía SignalR
                             await _hubContext.Clients.All.SendAsync("PagoAprobado", new
                             {
                                 intentId = intentId,
@@ -161,28 +160,34 @@ namespace MiPos.API.Controllers
                                 fecha = DateTime.Now.ToString("dd/MM/yyyy HH:mm")
                             });
 
-                            Console.WriteLine($"[SIGNALR NOTIFIED] PagoAprobado emitido para IntentID: {intentId}");
+                            Console.WriteLine($"[SIGNALR OK] Evento 'PagoAprobado' emitido para IntentID: {intentId}");
+                        }
+                        catch (Exception signalrEx)
+                        {
+                            Console.WriteLine($"[SIGNALR ERROR] No se pudo emitir evento SignalR: {signalrEx.Message}");
+                        }
 
-                            // 2. Disparar el envío de correo de forma asíncrona en segundo plano
-                            if (!string.IsNullOrWhiteSpace(emailCliente))
+                        // 2. Disparar el envío de correo en segundo plano sin bloquear el flujo principal
+                        if (!string.IsNullOrWhiteSpace(emailCliente) && emailCliente != "cliente@mipos.com")
+                        {
+                            _ = Task.Run(async () =>
                             {
-                                _ = Task.Run(async () =>
+                                try
                                 {
-                                    try
-                                    {
-                                        await _emailService.EnviarComprobanteAsync(
-                                            emailCliente,
-                                            payment.Id.ToString()!,
-                                            monto,
-                                            DateTime.Now.ToString("dd/MM/yyyy HH:mm")
-                                        );
-                                    }
-                                    catch (Exception ex)
-                                    {
-                                        Console.WriteLine($"[EMAIL BACKGROUND ERROR] {ex.Message}");
-                                    }
-                                });
-                            }
+                                    Console.WriteLine($"[EMAIL INICIADO] Enviando comprobante a {emailCliente}...");
+                                    await _emailService.EnviarComprobanteAsync(
+                                        emailCliente,
+                                        payment.Id.ToString()!,
+                                        monto,
+                                        DateTime.Now.ToString("dd/MM/yyyy HH:mm")
+                                    );
+                                    Console.WriteLine($"[EMAIL OK] Comprobante enviado a {emailCliente}");
+                                }
+                                catch (Exception emailEx)
+                                {
+                                    Console.WriteLine($"[EMAIL BACKGROUND ERROR] {emailEx.Message}");
+                                }
+                            });
                         }
                     }
                 }
@@ -191,8 +196,9 @@ namespace MiPos.API.Controllers
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[WEBHOOK ERROR] {ex.Message}");
-                return Ok(); // Siempre retornar 200 a Mercado Pago para evitar reintentos continuos
+                Console.WriteLine($"[WEBHOOK ERROR GENERAL] {ex.Message}");
+                // Retornar 200 OK a Mercado Pago para evitar que reintente notificaciones en bucle
+                return Ok();
             }
         }
 
