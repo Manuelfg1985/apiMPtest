@@ -38,7 +38,7 @@ namespace MiPos.API.Services
 
             var payload = new
             {
-                sender = new { name = "Mi POS", email = "no-reply@mipos.com" }, // Cambiar por tu mail verificado en Brevo si aplica
+                sender = new { name = "Mi POS", email = "ingmanuelfernandez1985@gmail.com" }, // Cambiar por tu mail verificado en Brevo si aplica
                 to = new[] { new { email = emailDestino } },
                 subject = $"Comprobante de Pago #{comprobanteId}",
                 htmlContent = $@"
