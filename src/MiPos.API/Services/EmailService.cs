@@ -1,8 +1,9 @@
 using System;
-using System.Net;
-using System.Net.Mail;
 using System.Threading.Tasks;
+using MailKit.Net.Smtp;
+using MailKit.Security;
 using Microsoft.Extensions.Options;
+using MimeKit;
 
 namespace MiPos.API.Services
 {
@@ -74,63 +75,80 @@ namespace MiPos.API.Services
                 throw new InvalidOperationException(errorMsg);
             }
 
-            Console.WriteLine($"[EMAIL SERVICE] Enviando comprobante a '{emailDestino}' vía '{_smtpSettings.Host}:{_smtpSettings.Port}'...");
+            Console.WriteLine($"[EMAIL SERVICE] Enviando comprobante a '{emailDestino}' vía MailKit ({_smtpSettings.Host}:{_smtpSettings.Port})...");
 
-            using (var client = new SmtpClient(_smtpSettings.Host, _smtpSettings.Port))
+            var message = new MimeMessage();
+            
+            // NOTA: El primer parámetro debe ser una dirección asociada/verificada en tu cuenta de Brevo
+            message.From.Add(new MailboxAddress("Mi POS", _smtpSettings.User));
+            message.To.Add(new MailboxAddress("", emailDestino));
+            message.Subject = $"Comprobante de Pago #{comprobanteId}";
+
+            var bodyBuilder = new BodyBuilder
             {
-                client.UseDefaultCredentials = false;
-                client.Credentials = new NetworkCredential(_smtpSettings.User, _smtpSettings.Password);
-                client.EnableSsl = true;
-                client.DeliveryMethod = SmtpDeliveryMethod.Network;
-                client.Timeout = 10000; // Timeout de 10 segundos máximo
-
-                // Nota: Brevo requiere que el remitente coincida con tu email registrado o verificado en la plataforma
-                var mailMessage = new MailMessage
-                {
-                    From = new MailAddress("no-reply@mipos.com", "Mi POS"),
-                    Subject = $"Comprobante de Pago #{comprobanteId}",
-                    Body = $@"
-                        <!DOCTYPE html>
-                        <html>
-                        <head>
-                            <style>
-                                body {{ font-family: Arial, sans-serif; color: #333; line-height: 1.6; }}
-                                .container {{ max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px; }}
-                                .header {{ background-color: #009ee3; color: white; padding: 15px; text-align: center; border-radius: 6px 6px 0 0; }}
-                                .content {{ padding: 20px; }}
-                                .details {{ background-color: #f9f9f9; padding: 15px; border-radius: 6px; margin-top: 15px; }}
-                                .footer {{ font-size: 12px; color: #777; text-align: center; margin-top: 20px; }}
-                            </style>
-                        </head>
-                        <body>
-                            <div class='container'>
-                                <div class='header'>
-                                    <h2>¡Comprobante de Pago!</h2>
-                                </div>
-                                <div class='content'>
-                                    <p>Hola,</p>
-                                    <p>Tu pago ha sido procesado exitosamente. A continuación verás el detalle de la operación:</p>
-                                    <div class='details'>
-                                        <p><strong>N° de Comprobante:</strong> {comprobanteId}</p>
-                                        <p><strong>Monto Total:</strong> ${monto:N2} ARS</p>
-                                        <p><strong>Fecha y Hora:</strong> {fecha}</p>
-                                        <p><strong>Estado:</strong> Aprobado</p>
-                                    </div>
-                                    <p>Gracias por tu compra.</p>
-                                </div>
-                                <div class='footer'>
-                                    <p>Este es un correo automático, por favor no respondas a este mensaje.</p>
-                                </div>
+                HtmlBody = $@"
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <style>
+                            body {{ font-family: Arial, sans-serif; color: #333; line-height: 1.6; }}
+                            .container {{ max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px; }}
+                            .header {{ background-color: #009ee3; color: white; padding: 15px; text-align: center; border-radius: 6px 6px 0 0; }}
+                            .content {{ padding: 20px; }}
+                            .details {{ background-color: #f9f9f9; padding: 15px; border-radius: 6px; margin-top: 15px; }}
+                            .footer {{ font-size: 12px; color: #777; text-align: center; margin-top: 20px; }}
+                        </style>
+                    </head>
+                    <body>
+                        <div class='container'>
+                            <div class='header'>
+                                <h2>¡Comprobante de Pago!</h2>
                             </div>
-                        </body>
-                        </html>",
-                    IsBodyHtml = true
-                };
+                            <div class='content'>
+                                <p>Hola,</p>
+                                <p>Tu pago ha sido procesado exitosamente. A continuación verás el detalle de la operación:</p>
+                                <div class='details'>
+                                    <p><strong>N° de Comprobante:</strong> {comprobanteId}</p>
+                                    <p><strong>Monto Total:</strong> ${monto:N2} ARS</p>
+                                    <p><strong>Fecha y Hora:</strong> {fecha}</p>
+                                    <p><strong>Estado:</strong> Aprobado</p>
+                                </div>
+                                <p>Gracias por tu compra.</p>
+                            </div>
+                            <div class='footer'>
+                                <p>Este es un correo automático, por favor no respondas a este mensaje.</p>
+                            </div>
+                        </div>
+                    </body>
+                    </html>"
+            };
 
-                mailMessage.To.Add(emailDestino);
+            message.Body = bodyBuilder.ToMessageBody();
 
-                await client.SendMailAsync(mailMessage);
+            using var client = new SmtpClient();
+            
+            // Configurar timeout defensivo de 10 segundos
+            client.Timeout = 10000;
+
+            try
+            {
+                // MailKit maneja la negociación STARTTLS de forma transparente en el puerto 587
+                await client.ConnectAsync(_smtpSettings.Host, _smtpSettings.Port, SecureSocketOptions.StartTls);
+
+                if (!string.IsNullOrEmpty(_smtpSettings.User) && !string.IsNullOrEmpty(_smtpSettings.Password))
+                {
+                    await client.AuthenticateAsync(_smtpSettings.User, _smtpSettings.Password);
+                }
+
+                await client.SendAsync(message);
+                await client.DisconnectAsync(true);
+
                 Console.WriteLine($"[EMAIL SERVICE OK] Comprobante enviado exitosamente a '{emailDestino}'.");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[EMAIL SERVICE ERROR] Falló el envío con MailKit: {ex.Message}");
+                throw;
             }
         }
     }
