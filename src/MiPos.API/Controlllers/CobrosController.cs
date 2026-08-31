@@ -5,7 +5,6 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using MercadoPago.Client.Payment;
 using MercadoPago.Client.Preference;
-using MercadoPago.Exceptions;
 using MercadoPago.Resource.Payment;
 using MercadoPago.Resource.Preference;
 using Microsoft.AspNetCore.Mvc;
@@ -89,22 +88,35 @@ namespace MiPos.API.Controllers
                     initPoint = preference.InitPoint
                 });
             }
-            catch (MercadoPagoApiException mpEx)
+            catch (Exception ex) when (ex.GetType().Name.Contains("MercadoPago"))
             {
-                Console.WriteLine($"[MP API ERROR] Status: {mpEx.StatusCode} | Content: {mpEx.ApiResponse?.Content}");
-                return StatusCode((int)mpEx.StatusCode, new
+                Console.WriteLine($"[MP ERROR] {ex.GetType().Name}: {ex.Message}");
+
+                // Intentar obtener StatusCode y ApiResponse por reflexión para evitar incompatibilidades de versión del SDK
+                var statusCodeProp = ex.GetType().GetProperty("StatusCode");
+                var apiResponseProp = ex.GetType().GetProperty("ApiResponse");
+
+                int statusCode = 500;
+                if (statusCodeProp?.GetValue(ex) is int statusInt)
                 {
-                    error = "Error devuelto por Mercado Pago",
-                    detalle = mpEx.ApiResponse?.Content ?? mpEx.Message
-                });
-            }
-            catch (MercadoPagoException mpEx)
-            {
-                Console.WriteLine($"[MP ERROR] {mpEx.Message}");
-                return StatusCode(500, new
+                    statusCode = statusInt;
+                }
+                else if (statusCodeProp?.GetValue(ex) is System.Net.HttpStatusCode httpStatus)
                 {
-                    error = "Error del SDK de Mercado Pago",
-                    detalle = mpEx.Message
+                    statusCode = (int)httpStatus;
+                }
+
+                string? detalle = null;
+                if (apiResponseProp?.GetValue(ex) is object apiResp)
+                {
+                    var contentProp = apiResp.GetType().GetProperty("Content");
+                    detalle = contentProp?.GetValue(apiResp)?.ToString();
+                }
+
+                return StatusCode(statusCode, new
+                {
+                    error = "Error en la plataforma de Mercado Pago",
+                    detalle = detalle ?? ex.Message
                 });
             }
             catch (Exception ex)
@@ -180,7 +192,7 @@ namespace MiPos.API.Controllers
             catch (Exception ex)
             {
                 Console.WriteLine($"[WEBHOOK ERROR] {ex.Message}");
-                return Ok(); // Siempre retornar 200 a Mercado Pago para evitar que reintente indefinidamente
+                return Ok(); // Siempre retornar 200 a Mercado Pago para evitar reintentos continuos
             }
         }
 
