@@ -27,19 +27,18 @@ namespace MiPos.API.Services
         {
             _smtpSettings = smtpSettings.Value ?? new SmtpSettings();
 
+            // Carga de respaldo desde variables de entorno de Render
             if (string.IsNullOrWhiteSpace(_smtpSettings.Host))
             {
                 _smtpSettings.Host = Environment.GetEnvironmentVariable("Smtp__Host") 
                                   ?? Environment.GetEnvironmentVariable("SMTP_HOST") 
-                                  ?? Environment.GetEnvironmentVariable("Smtp_Host") 
-                                  ?? "";
+                                  ?? "smtp-relay.brevo.com";
             }
 
             if (string.IsNullOrWhiteSpace(_smtpSettings.User))
             {
                 _smtpSettings.User = Environment.GetEnvironmentVariable("Smtp__User") 
                                   ?? Environment.GetEnvironmentVariable("SMTP_USER") 
-                                  ?? Environment.GetEnvironmentVariable("Smtp_User") 
                                   ?? "";
             }
 
@@ -47,15 +46,13 @@ namespace MiPos.API.Services
             {
                 _smtpSettings.Password = Environment.GetEnvironmentVariable("Smtp__Password") 
                                       ?? Environment.GetEnvironmentVariable("SMTP_PASSWORD") 
-                                      ?? Environment.GetEnvironmentVariable("Smtp_Password") 
                                       ?? "";
             }
 
             if (_smtpSettings.Port == 0 || _smtpSettings.Port == 587)
             {
                 var portVar = Environment.GetEnvironmentVariable("Smtp__Port") 
-                           ?? Environment.GetEnvironmentVariable("SMTP_PORT") 
-                           ?? Environment.GetEnvironmentVariable("Smtp_Port");
+                           ?? Environment.GetEnvironmentVariable("SMTP_PORT");
 
                 if (int.TryParse(portVar, out int parsedPort))
                 {
@@ -72,12 +69,12 @@ namespace MiPos.API.Services
         {
             if (string.IsNullOrWhiteSpace(_smtpSettings.Host) || string.IsNullOrWhiteSpace(_smtpSettings.User))
             {
-                var errorMsg = $"[EMAIL CONFIG ERROR] Host o User vacíos en Render. Host: '{_smtpSettings.Host}', User: '{_smtpSettings.User}'";
+                var errorMsg = $"[EMAIL CONFIG ERROR] Host o User vacíos. Host: '{_smtpSettings.Host}', User: '{_smtpSettings.User}'";
                 Console.WriteLine(errorMsg);
                 throw new InvalidOperationException(errorMsg);
             }
 
-            Console.WriteLine($"[EMAIL SERVICE] Intentando enviar correo a '{emailDestino}' mediante '{_smtpSettings.Host}:{_smtpSettings.Port}'...");
+            Console.WriteLine($"[EMAIL SERVICE] Enviando comprobante a '{emailDestino}' vía '{_smtpSettings.Host}:{_smtpSettings.Port}'...");
 
             using (var client = new SmtpClient(_smtpSettings.Host, _smtpSettings.Port))
             {
@@ -85,11 +82,12 @@ namespace MiPos.API.Services
                 client.Credentials = new NetworkCredential(_smtpSettings.User, _smtpSettings.Password);
                 client.EnableSsl = true;
                 client.DeliveryMethod = SmtpDeliveryMethod.Network;
-                client.Timeout = 10000; // 10 segundos máximo de espera
+                client.Timeout = 10000; // Timeout de 10 segundos máximo
 
+                // Nota: Brevo requiere que el remitente coincida con tu email registrado o verificado en la plataforma
                 var mailMessage = new MailMessage
                 {
-                    From = new MailAddress(_smtpSettings.User, "Mi POS"),
+                    From = new MailAddress("no-reply@mipos.com", "Mi POS"),
                     Subject = $"Comprobante de Pago #{comprobanteId}",
                     Body = $@"
                         <!DOCTYPE html>
@@ -111,7 +109,7 @@ namespace MiPos.API.Services
                                 </div>
                                 <div class='content'>
                                     <p>Hola,</p>
-                                    <p>Tu pago ha sido procesado exitosamente. A continuación verás el resumen de la operación:</p>
+                                    <p>Tu pago ha sido procesado exitosamente. A continuación verás el detalle de la operación:</p>
                                     <div class='details'>
                                         <p><strong>N° de Comprobante:</strong> {comprobanteId}</p>
                                         <p><strong>Monto Total:</strong> ${monto:N2} ARS</p>
@@ -132,7 +130,7 @@ namespace MiPos.API.Services
                 mailMessage.To.Add(emailDestino);
 
                 await client.SendMailAsync(mailMessage);
-                Console.WriteLine($"[EMAIL SERVICE OK] Correo enviado exitosamente a '{emailDestino}'.");
+                Console.WriteLine($"[EMAIL SERVICE OK] Comprobante enviado exitosamente a '{emailDestino}'.");
             }
         }
     }
