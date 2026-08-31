@@ -5,7 +5,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using MercadoPago.Client.Payment;
 using MercadoPago.Client.Preference;
-using MercadoPago.Exception;
+using MercadoPago.Error;
 using MercadoPago.Resource.Payment;
 using MercadoPago.Resource.Preference;
 using Microsoft.AspNetCore.Mvc;
@@ -89,16 +89,16 @@ namespace MiPos.API.Controllers
                     initPoint = preference.InitPoint
                 });
             }
-            catch (MercadoPagoApiException mpEx)
+            catch (MPApiException mpEx)
             {
                 Console.WriteLine($"[MP API ERROR] Status: {mpEx.StatusCode} | Content: {mpEx.ApiResponse?.Content}");
-                return StatusCode((int)mpEx.StatusCode, new
+                return StatusCode((int)(mpEx.StatusCode ?? System.Net.HttpStatusCode.InternalServerError), new
                 {
                     error = "Error devuelto por Mercado Pago",
                     detalle = mpEx.ApiResponse?.Content ?? mpEx.Message
                 });
             }
-            catch (MercadoPagoException mpEx)
+            catch (MPException mpEx)
             {
                 Console.WriteLine($"[MP ERROR] {mpEx.Message}");
                 return StatusCode(500, new
@@ -180,7 +180,7 @@ namespace MiPos.API.Controllers
             catch (Exception ex)
             {
                 Console.WriteLine($"[WEBHOOK ERROR] {ex.Message}");
-                return Ok(); // Siempre retornar 200 a Mercado Pago para evitar que retente indefinidamente
+                return Ok(); // Siempre retornar 200 a Mercado Pago para evitar reintentos continuos
             }
         }
 
