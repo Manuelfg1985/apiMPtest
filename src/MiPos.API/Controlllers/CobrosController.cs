@@ -210,7 +210,7 @@ namespace MiPos.API.Controllers
             {
                 var client = new PaymentClient();
                 
-                var searchRequest = new MPSearchRequest
+                var searchRequest = new SearchRequest
                 {
                     Filters = new Dictionary<string, object>
                     {
