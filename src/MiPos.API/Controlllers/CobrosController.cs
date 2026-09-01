@@ -53,7 +53,9 @@ namespace MiPos.API.Controllers
         /// Genera la preferencia de pago y los datos del QR
         /// GET/POST: /api/Cobros/crear-intento
         /// </summary>
+        /// 
         [HttpPost("crear-intento")]
+        [HttpPost("crear-qr")]
         public IActionResult CrearIntento([FromBody] CrearCobroDto request)
         {
             if (request.Monto <= 0)
