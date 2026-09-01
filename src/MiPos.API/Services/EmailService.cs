@@ -29,49 +29,51 @@ namespace MiPos.API.Services
 
             if (string.IsNullOrWhiteSpace(apiKey))
             {
-                var errorMsg = "[EMAIL CONFIG ERROR] No se encontró la API Key de Brevo (BREVO_API_KEY).";
+                var errorMsg = "[EMAIL CONFIG ERROR] No se encontró la API Key de Brevo en las variables de entorno.";
                 Console.WriteLine(errorMsg);
                 throw new InvalidOperationException(errorMsg);
             }
 
             Console.WriteLine($"[EMAIL SERVICE] Enviando comprobante a '{emailDestino}' vía API REST de Brevo...");
 
+            // ATENCIÓN: El objeto 'sender' utiliza tu casilla registrada en Brevo para pasar la validación
             var payload = new
             {
-                sender = new { name = "Mi POS", email = "ingmanuelfernandez1985@gmail.com" }, // Cambiar por tu mail verificado en Brevo si aplica
+                sender = new { name = "Mi POS", email = "manuelfg2@gmail.com" },
                 to = new[] { new { email = emailDestino } },
                 subject = $"Comprobante de Pago #{comprobanteId}",
                 htmlContent = $@"
                     <!DOCTYPE html>
                     <html>
                     <head>
+                        <meta charset='utf-8'>
                         <style>
-                            body {{ font-family: Arial, sans-serif; color: #333; line-height: 1.6; }}
-                            .container {{ max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px; }}
-                            .header {{ background-color: #009ee3; color: white; padding: 15px; text-align: center; border-radius: 6px 6px 0 0; }}
-                            .content {{ padding: 20px; }}
-                            .details {{ background-color: #f9f9f9; padding: 15px; border-radius: 6px; margin-top: 15px; }}
-                            .footer {{ font-size: 12px; color: #777; text-align: center; margin-top: 20px; }}
+                            body {{ font-family: Arial, sans-serif; color: #333; line-height: 1.6; background-color: #f4f4f4; padding: 20px; }}
+                            .container {{ max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }}
+                            .header {{ background-color: #009ee3; color: white; padding: 20px; text-align: center; }}
+                            .content {{ padding: 25px; }}
+                            .details {{ background-color: #f9f9f9; padding: 15px; border-radius: 6px; margin: 20px 0; border-left: 4px solid #009ee3; }}
+                            .footer {{ font-size: 12px; color: #777; text-align: center; padding: 15px; background: #f1f1f1; }}
                         </style>
                     </head>
                     <body>
                         <div class='container'>
                             <div class='header'>
-                                <h2>¡Comprobante de Pago!</h2>
+                                <h2 style='margin:0;'>¡Pago Confirmado!</h2>
                             </div>
                             <div class='content'>
                                 <p>Hola,</p>
-                                <p>Tu pago ha sido procesado exitosamente. A continuación verás el detalle de la operación:</p>
+                                <p>Hemos recibido tu pago correctamente. A continuación encuentras el detalle de la transacción:</p>
                                 <div class='details'>
-                                    <p><strong>N° de Comprobante:</strong> {comprobanteId}</p>
-                                    <p><strong>Monto Total:</strong> ${monto:N2} ARS</p>
-                                    <p><strong>Fecha y Hora:</strong> {fecha}</p>
-                                    <p><strong>Estado:</strong> Aprobado</p>
+                                    <p style='margin: 5px 0;'><strong>N° de Comprobante:</strong> {comprobanteId}</p>
+                                    <p style='margin: 5px 0;'><strong>Monto:</strong> ${monto:N2} ARS</p>
+                                    <p style='margin: 5px 0;'><strong>Fecha:</strong> {fecha}</p>
+                                    <p style='margin: 5px 0;'><strong>Estado:</strong> Aprobado</p>
                                 </div>
                                 <p>Gracias por tu compra.</p>
                             </div>
                             <div class='footer'>
-                                <p>Este es un correo automático, por favor no respondas a este mensaje.</p>
+                                <p>Este es un comprobante generado automáticamente por Mi POS.</p>
                             </div>
                         </div>
                     </body>
