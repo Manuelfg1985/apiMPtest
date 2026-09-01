@@ -128,10 +128,11 @@ public class CobrosController : ControllerBase
                 try
                 {
                     await _emailService.EnviarComprobanteAsync(
-                    cobro.EmailCliente ?? "", 
-                    cobro.Monto, 
-                    cobro.Id, 
-                    (cobro.FechaPago ?? DateTime.UtcNow).ToString("dd/MM/yyyy HH:mm"));
+                        cobro.EmailCliente ?? "",                             // 1. Email del cliente
+                        cobro.Id,                                             // 2. ID / Comprobante
+                        cobro.Monto,                                          // 3. Monto
+                        (cobro.FechaPago ?? DateTime.UtcNow).ToString("dd/MM/yyyy HH:mm")  // 4. Fecha formateada
+                    );
                 }
                 catch (Exception ex)
                 {
