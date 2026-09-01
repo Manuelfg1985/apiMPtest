@@ -29,6 +29,7 @@ public class CobrosController : ControllerBase
     /// Crea un cobro y genera el QR oficial registrado en Mercado Pago
     /// </summary>
     [HttpPost("crear")]
+    [HttpPost("crear-qr")]
     public async Task<IActionResult> CrearCobro([FromBody] CrearCobroRequest request)
     {
         if (request == null || request.Monto <= 0)
@@ -85,6 +86,7 @@ public class CobrosController : ControllerBase
     /// Endpoint para consultar el estado del cobro (Polling)
     /// </summary>
     [HttpGet("estado/{id}")]
+    [HttpGet("estado-pago/{id}")]
     public IActionResult ObtenerEstado(string id)
     {
         var cobro = CobrosRepository.ObtenerPorId(id);
