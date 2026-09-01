@@ -24,22 +24,26 @@ if (!string.IsNullOrEmpty(accessToken))
 {
     MercadoPagoConfig.AccessToken = accessToken;
     string tokenInicio = accessToken.Substring(0, Math.Min(8, accessToken.Length));
-    Console.WriteLine($"[INIT] MercadoPagoConfig configurado con exito. Token inicia en: {tokenInicio}");
+    Console.WriteLine($"[INIT] MercadoPagoConfig configurado con éxito. Token inicia en: {tokenInicio}");
 }
 else
 {
-    Console.WriteLine("[ERROR] No se encontro AccessToken de MercadoPago en la configuracion.");
+    Console.WriteLine("[ERROR] No se encontró AccessToken de MercadoPago en la configuración.");
 }
 
 builder.Services.AddControllers();
 builder.Services.AddSignalR();
 builder.Services.AddScoped<IEmailService, EmailService>();
+
+// Registrar MercadoPagoService con HttpClient
+builder.Services.AddHttpClient<MercadoPagoService>();
+
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
-// Redirigir la raiz (/) directamente a Swagger
+// Redirigir la raíz (/) directamente a Swagger
 app.MapGet("/", context =>
 {
     context.Response.Redirect("/swagger/index.html");

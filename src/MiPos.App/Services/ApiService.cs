@@ -8,7 +8,7 @@ namespace MiPos.App.Services
         private readonly HttpClient _httpClient;
 
         // NOTA: Para emulador de Android usa "http://10.0.2.2:5015". Para Windows usa "http://localhost:5015".
-        private const string BaseUrl = "http://localhost:5015"; 
+        private const string BaseUrl = "https://mipos-api-kpai.onrender.com"; 
 
         public ApiService()
         {

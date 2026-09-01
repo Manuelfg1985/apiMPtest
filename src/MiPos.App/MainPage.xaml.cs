@@ -1,125 +1,105 @@
-﻿using MiPos.App.Services;
-using System;
-using System.Net.Mail;
-using System.Threading.Tasks;
+﻿using System;
+using System.Globalization;
+using System.Net.Http;
+using System.Net.Http.Json;
+using System.Text.Json.Serialization;
 using Microsoft.Maui.Controls;
 
 namespace MiPos.App
 {
+    public class CrearQrResponseDto
+    {
+        [JsonPropertyName("intentId")]
+        public string IntentId { get; set; } = string.Empty;
+
+        [JsonPropertyName("qrData")]
+        public string QrData { get; set; } = string.Empty;
+
+        [JsonPropertyName("monto")]
+        public decimal Monto { get; set; }
+    }
+
     public partial class MainPage : ContentPage
     {
-        private string _montoTexto = string.Empty;
-        private readonly ApiService _apiService;
-        private const int MAX_MONTO_LENGTH = 8;
-        private const string MONTO_FORMAT = "$ {0:N0}";
-        private const string DEFAULT_DISPLAY = "$ 0,00";
+        private string _montoTexto = "";
+        private readonly HttpClient _httpClient;
+        private const string ApiBaseUrl = "https://mipos-api-kpai.onrender.com";
 
         public MainPage()
         {
             InitializeComponent();
-            _apiService = new ApiService();
-            // TxtEmail.TextChanged += OnEmailTextChanged; // Comentar si no tienes el método
+            _httpClient = new HttpClient { BaseAddress = new Uri(ApiBaseUrl) };
         }
 
-        private void OnNumeroClicked(object sender, EventArgs e)
+        private void OnNumeroClicked(object? sender, EventArgs e)
         {
-            if (sender is Button btn)
+            if (sender is Button button)
             {
-                if (_montoTexto.Length >= MAX_MONTO_LENGTH) return;
-
-                if (_montoTexto == "0" && btn.Text != ".")
-                {
-                    _montoTexto = btn.Text;
-                }
-                else
-                {
-                    _montoTexto += btn.Text;
-                }
-
-                ActualizarDisplay();
+                if (_montoTexto.Length >= 9) return; // Límite de dígitos
+                _montoTexto += button.Text;
+                ActualizarLabelMonto();
             }
         }
 
-        private void OnBorrarClicked(object sender, EventArgs e)
+        private void OnBorrarClicked(object? sender, EventArgs e)
         {
-            _montoTexto = string.Empty;
-            ActualizarDisplay();
-            // BtnCobrar.Focus();
+            _montoTexto = "";
+            ActualizarLabelMonto();
         }
 
-        private void ActualizarDisplay()
+        private void ActualizarLabelMonto()
         {
-            if (decimal.TryParse(_montoTexto, out decimal monto))
+            if (decimal.TryParse(_montoTexto, out decimal montoCentavos))
             {
-                LblMonto.Text = string.Format(MONTO_FORMAT, monto);
+                decimal montoReal = montoCentavos / 100m;
+                LblMonto.Text = string.Format(CultureInfo.GetCultureInfo("es-AR"), "$ {0:N2}", montoReal);
             }
             else
             {
-                LblMonto.Text = DEFAULT_DISPLAY;
+                LblMonto.Text = "$ 0,00";
             }
         }
 
-        private async void OnCobrarClicked(object sender, EventArgs e)
+        private async void OnCobrarClicked(object? sender, EventArgs e)
         {
-            // Remove email validation if TxtEmail doesn't exist or you don't need it
-            /*
-            if (!IsValidEmail(TxtEmail.Text))
+            if (!decimal.TryParse(_montoTexto, out decimal montoCentavos) || montoCentavos <= 0)
             {
-                await DisplayAlert("Error", "Ingrese un email válido.", "OK");
-                TxtEmail.Focus();
+                await this.DisplayAlertAsync("Atención", "Ingrese un monto mayor a cero.", "Aceptar");
                 return;
             }
-            */
 
-            if (!decimal.TryParse(_montoTexto, out decimal monto) || monto <= 0)
-            {
-                await DisplayAlert("Error", "Ingrese un monto válido mayor a cero.", "OK");
-                return;
-            }
+            decimal montoReal = montoCentavos / 100m;
+            string emailCliente = TxtEmail.Text?.Trim() ?? "";
 
             try
             {
-                BtnCobrar.IsEnabled = false;
-
-                // Remove the email parameter if not needed
-                var respuesta = await _apiService.CrearOrdenQRAsync(monto, TxtEmail?.Text ?? string.Empty);
-
-                if (respuesta != null)
+                var requestPayload = new
                 {
-                    await Navigation.PushAsync(new QrPage(respuesta.QrData, respuesta.IntentId, monto));
+                    monto = montoReal,
+                    emailCliente = emailCliente
+                };
+
+                // Petición al endpoint con alias para compatibilidad
+                var response = await _httpClient.PostAsJsonAsync("/api/Cobros/crear-qr", requestPayload);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    var resultado = await response.Content.ReadFromJsonAsync<CrearQrResponseDto>();
+                    if (resultado != null)
+                    {
+                        // Navegar a la pantalla del QR pasando los parámetros
+                        await Navigation.PushAsync(new QrPage(resultado.QrData, resultado.IntentId, resultado.Monto, emailCliente));
+                    }
                 }
                 else
                 {
-                    await DisplayAlert("Error", "No se pudo conectar con el servidor de cobro.", "OK");
+                    await this.DisplayAlertAsync("Error", "No se pudo generar el cobro QR en el servidor.", "Aceptar");
                 }
-            }
-            catch (Exception ex)
-            {
-                await DisplayAlert("Error", "Ocurrió un error inesperado. Intente nuevamente.", "OK");
-            }
-            finally
-            {
-                BtnCobrar.IsEnabled = true;
-            }
-        }
-
-        // Remove this method if you don't have a TxtEmail control
-        /*
-        private bool IsValidEmail(string email)
-        {
-            if (string.IsNullOrWhiteSpace(email))
-                return false;
-
-            try
-            {
-                var addr = new MailAddress(email);
-                return addr.Address == email;
             }
             catch
             {
-                return false;
+                await this.DisplayAlertAsync("Error de Conexión", "Verifique su conexión a Internet o el estado de la API.", "Aceptar");
             }
         }
-        */
     }
 }

@@ -1,176 +1,145 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using MiPos.API.Hubs;
+using MiPos.API.Models;
 using MiPos.API.Services;
-using System;
-using System.Collections.Concurrent;
-using System.Threading.Tasks;
 
-namespace MiPos.API.Controllers
+namespace MiPos.API.Controllers;
+
+[ApiController]
+[Route("api/[controller]")]
+public class CobrosController : ControllerBase
 {
-    // DTO para recibir la petición de cobro inicial
-    public class CrearCobroDto
+    private readonly MercadoPagoService _mercadoPagoService;
+    private readonly IHubContext<PagoHub> _hubContext;
+    private readonly IEmailService _emailService;
+
+    // Inyección de dependencias a través del constructor
+    public CobrosController(
+        MercadoPagoService mercadoPagoService,
+        IHubContext<PagoHub> hubContext,
+        IEmailService emailService)
     {
-        public decimal Monto { get; set; }
-        public string EmailCliente { get; set; } = string.Empty;
+        _mercadoPagoService = mercadoPagoService;
+        _hubContext = hubContext;
+        _emailService = emailService;
     }
 
-    // DTO para notificar el pago por email
-    public class NotificarPagoDto
+    /// <summary>
+    /// Crea un cobro y genera el QR oficial registrado en Mercado Pago
+    /// </summary>
+    [HttpPost("crear")]
+    public async Task<IActionResult> CrearCobro([FromBody] CrearCobroRequest request)
     {
-        public string EmailDestino { get; set; } = string.Empty;
-        public string ComprobanteId { get; set; } = string.Empty;
-        public decimal Monto { get; set; }
-    }
-
-    // Modelo interno para almacenar temporalmente el estado en memoria
-    public class EstadoTransaccion
-    {
-        public bool Aprobado { get; set; }
-        public string IntentId { get; set; } = string.Empty;
-        public long PaymentId { get; set; }
-        public decimal Monto { get; set; }
-        public DateTime Fecha { get; set; } = DateTime.Now;
-    }
-
-    [ApiController]
-    [Route("api/[controller]")]
-    public class CobrosController : ControllerBase
-    {
-        private readonly IEmailService _emailService;
-        private readonly IHubContext<PagoHub> _hubContext;
-
-        // Almacenamiento en memoria para mantener el estado de los pagos durante las pruebas/operación
-        private static readonly ConcurrentDictionary<string, EstadoTransaccion> _transacciones = new();
-
-        public CobrosController(IEmailService emailService, IHubContext<PagoHub> hubContext)
+        if (request == null || request.Monto <= 0)
         {
-            _emailService = emailService;
-            _hubContext = hubContext;
+            return BadRequest(new { mensaje = "El monto ingresado debe ser mayor a 0." });
         }
 
-        /// <summary>
-        /// Genera la preferencia de pago y los datos del QR
-        /// GET/POST: /api/Cobros/crear-intento
-        /// </summary>
-        /// 
-        [HttpPost("crear-intento")]
-        [HttpPost("crear-qr")]
-        public IActionResult CrearIntento([FromBody] CrearCobroDto request)
+        // Generar identificador único de la transacción
+        var cobroId = Guid.NewGuid().ToString("N");
+
+        try
         {
-            if (request.Monto <= 0)
+            // 1. Solicitar el código QR oficial a la API de Mercado Pago
+            var qrData = await _mercadoPagoService.CrearOrdenQrAsync(
+                externalReference: cobroId,
+                monto: request.Monto,
+                descripcion: $"Cobro #{cobroId[..6].ToUpper()}"
+            );
+
+            if (string.IsNullOrEmpty(qrData))
             {
-                return BadRequest(new { mensaje = "El monto debe ser mayor a cero." });
+                return BadRequest(new { mensaje = "Mercado Pago no devolvió una cadena QR válida." });
             }
 
-            var intentId = Guid.NewGuid().ToString("N");
-            
-            // Cadena ficticia/simulada de QR de Mercado Pago para pruebas
-            // En producción aquí se integra el SDK de Mercado Pago / Merchant Orders
-            var qrString = $"00020101021243650016com.mercadopago0136{intentId}5204000053030325802AR5906MiPos6009BsAs6304ABCD";
-
-            var estadoInicial = new EstadoTransaccion
+            // 2. Guardar el cobro en el repositorio local / BD en memoria
+            var nuevoCobro = new CobroModel
             {
-                IntentId = intentId,
-                Aprobado = false,
-                Monto = request.Monto
+                Id = cobroId,
+                Monto = request.Monto,
+                EmailCliente = request.EmailCliente,
+                Estado = "PENDIENTE",
+                QrData = qrData,
+                FechaCreacion = DateTime.UtcNow
             };
 
-            _transacciones[intentId] = estadoInicial;
+            CobrosRepository.Guardar(nuevoCobro);
 
+            // 3. Responder a la app móvil con el cobroId y el qrData oficial de MP
             return Ok(new
             {
-                intentId = intentId,
-                qrData = qrString,
-                monto = request.Monto
+                cobroId = nuevoCobro.Id,
+                qrData = nuevoCobro.QrData,
+                monto = nuevoCobro.Monto
             });
         }
-
-        /// <summary>
-        /// 
-        /// Endpoint para Polling desde el Frontend .NET MAUI
-        /// GET: /api/Cobros/estado-pago/{intentId}
-        /// </summary>
-        [HttpGet("estado-pago/{intentId}")]
-        public IActionResult ObtenerEstadoPago(string intentId)
+        catch (Exception ex)
         {
-            if (_transacciones.TryGetValue(intentId, out var estado))
+            Console.WriteLine($"[ERROR] Error al crear orden en MercadoPago: {ex.Message}");
+            return StatusCode(500, new { mensaje = "Error al comunicarse con Mercado Pago", detalle = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Endpoint para consultar el estado del cobro (Polling)
+    /// </summary>
+    [HttpGet("estado/{id}")]
+    public IActionResult ObtenerEstado(string id)
+    {
+        var cobro = CobrosRepository.ObtenerPorId(id);
+        if (cobro == null)
+        {
+            return NotFound(new { mensaje = "Cobro no encontrado." });
+        }
+
+        return Ok(new
+        {
+            id = cobro.Id,
+            estado = cobro.Estado,
+            monto = cobro.Monto,
+            emailCliente = cobro.EmailCliente
+        });
+    }
+
+    /// <summary>
+    /// Endpoint de simulación para pruebas manuales/DEMO
+    /// </summary>
+    [HttpPost("simular-pago/{id}")]
+    public async Task<IActionResult> SimularPago(string id)
+    {
+        var cobro = CobrosRepository.ObtenerPorId(id);
+        if (cobro == null)
+        {
+            return NotFound(new { mensaje = "Cobro no encontrado." });
+        }
+
+        cobro.Estado = "APROBADO";
+        cobro.FechaPago = DateTime.UtcNow;
+
+        // Notificar por SignalR a la app móvil en tiempo real
+        await _hubContext.Clients.All.SendAsync("PagoActualizado", cobro.Id, cobro.Estado);
+
+        // Enviar email de comprobante si se ingresó un correo
+        if (!string.IsNullOrWhiteSpace(cobro.EmailCliente))
+        {
+            _ = Task.Run(async () =>
             {
-                return Ok(new
+                try
                 {
-                    aprobado = estado.Aprobado,
-                    intentId = estado.IntentId,
-                    paymentId = estado.PaymentId,
-                    monto = estado.Monto
-                });
-            }
-
-            return Ok(new { aprobado = false, intentId = intentId, paymentId = 0, monto = 0m });
-        }
-
-        /// <summary>
-        /// Webhook o simulador de confirmación de pago
-        /// POST: /api/Cobros/webhook-mercadopago O /api/Cobros/confirmar-simulacion
-        /// </summary>
-        [HttpPost("webhook-mercadopago")]
-        public async Task<IActionResult> WebhookMercadoPago([FromBody] NotificarPagoDto payload)
-        {
-            var intentId = payload.ComprobanteId;
-            var paymentId = Random.Shared.Next(100000000, 999999999);
-
-            var estadoAprobado = new EstadoTransaccion
-            {
-                IntentId = intentId,
-                Aprobado = true,
-                PaymentId = paymentId,
-                Monto = payload.Monto
-            };
-
-            _transacciones[intentId] = estadoAprobado;
-
-            // Emitir evento por SignalR en tiempo real a la app móvil
-            await _hubContext.Clients.All.SendAsync("PagoAprobado", new
-            {
-                intentId = intentId,
-                paymentId = paymentId,
-                monto = payload.Monto,
-                fecha = DateTime.Now.ToString("dd/MM/yyyy HH:mm")
+                    await _emailService.EnviarComprobanteAsync(
+                    cobro.EmailCliente ?? "", 
+                    cobro.Monto, 
+                    cobro.Id, 
+                    (cobro.FechaPago ?? DateTime.UtcNow).ToString("dd/MM/yyyy HH:mm"));
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[ERROR] Falló envío de email simulado: {ex.Message}");
+                }
             });
-
-            return Ok(new { status = "processed" });
         }
 
-        /// <summary>
-        /// Endpoint que invoca el frontend .NET MAUI para despachar el correo
-        /// POST: /api/Cobros/notificar-pago
-        /// </summary>
-        [HttpPost("notificar-pago")]
-        public async Task<IActionResult> NotificarPago([FromBody] NotificarPagoDto request)
-        {
-            if (string.IsNullOrWhiteSpace(request.EmailDestino))
-            {
-                return BadRequest(new { mensaje = "El email de destino es obligatorio." });
-            }
-
-            var fechaActual = DateTime.Now.ToString("dd/MM/yyyy HH:mm");
-
-            try
-            {
-                // Notifica al email dinámico que viene en el request
-                await _emailService.EnviarComprobanteAsync(
-                    request.EmailDestino,
-                    request.ComprobanteId,
-                    request.Monto,
-                    fechaActual
-                );
-
-                return Ok(new { mensaje = "Comprobante enviado exitosamente." });
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[CONTROLLER ERROR] Falló envío a '{request.EmailDestino}': {ex.Message}");
-                return StatusCode(500, new { mensaje = "Error al procesar el email.", detalle = ex.Message });
-            }
-        }
+        return Ok(new { mensaje = "Pago simulado exitosamente", cobro });
     }
 }

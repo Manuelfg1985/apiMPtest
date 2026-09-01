@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("MiPos.Tests")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+2d0acbc9ec88d8bd2312da9de298d351c4ec5cc0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+de5c197a9b7ffe1867b69699fd150e4e950e1567")]
 [assembly: System.Reflection.AssemblyProductAttribute("MiPos.Tests")]
 [assembly: System.Reflection.AssemblyTitleAttribute("MiPos.Tests")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
